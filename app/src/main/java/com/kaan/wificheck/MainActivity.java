@@ -12,14 +12,20 @@ import android.view.Gravity;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Button;
+import android.widget.ScrollView;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.HashSet;
+
 public class MainActivity extends Activity {
 
     LinearLayout layout;
-    TextView status, network, ip, signal;
+    TextView status, network, ip, signal, devices;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,6 +44,8 @@ public class MainActivity extends Activity {
     }
 
     private void createScreen() {
+        ScrollView scroll = new ScrollView(this);
+
         layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(28, 35, 28, 25);
@@ -63,6 +71,17 @@ public class MainActivity extends Activity {
         addCard(ip);
         addCard(signal);
 
+        TextView deviceTitle = makeText(
+            "Ağa Bağlı Cihazlar", 21, Color.WHITE
+        );
+        deviceTitle.setTypeface(null, Typeface.BOLD);
+        layout.addView(deviceTitle);
+
+        devices = makeText(
+            "Cihazlar kontrol ediliyor...", 15, Color.WHITE
+        );
+        addCard(devices);
+
         Button refresh = new Button(this);
         refresh.setText("Bilgileri Yenile");
         refresh.setTextColor(Color.WHITE);
@@ -70,7 +89,9 @@ public class MainActivity extends Activity {
         refresh.setOnClickListener(v -> refreshInfo());
 
         layout.addView(refresh);
-        setContentView(layout);
+
+        scroll.addView(layout);
+        setContentView(scroll);
     }
 
     private void addCard(TextView view) {
@@ -110,6 +131,7 @@ public class MainActivity extends Activity {
                 WifiInfo wifiInfo = wifi.getConnectionInfo();
 
                 String ssid = wifiInfo.getSSID();
+
                 if (ssid != null && !ssid.equals("<unknown ssid>")) {
                     network.setText("Ağ adı: " + ssid.replace("\"", ""));
                 } else {
@@ -117,6 +139,7 @@ public class MainActivity extends Activity {
                 }
 
                 int ipValue = wifiInfo.getIpAddress();
+
                 String ipAddress = String.format(
                     "%d.%d.%d.%d",
                     ipValue & 255,
@@ -130,16 +153,86 @@ public class MainActivity extends Activity {
                 int level = wifiInfo.getRssi();
                 signal.setText("Sinyal gücü: " + level + " dBm");
 
+                readDevices();
+
             } else {
                 status.setText("● Wi-Fi bağlantısı bulunamadı");
                 status.setTextColor(Color.RED);
                 network.setText("Ağ adı: -");
                 ip.setText("IP adresi: -");
                 signal.setText("Sinyal gücü: -");
+                devices.setText("Cihazları görmek için Wi-Fi'ye bağlan.");
             }
 
         } catch (Exception e) {
             status.setText("Bilgiler alınamadı.");
+            devices.setText("Cihaz listesi okunamadı.");
+        }
+    }
+
+    private void readDevices() {
+        ArrayList<String> deviceList = new ArrayList<>();
+        HashSet<String> seen = new HashSet<>();
+
+        try {
+            BufferedReader reader = new BufferedReader(
+                new FileReader("/proc/net/arp")
+            );
+
+            String line;
+            reader.readLine();
+
+            while ((line = reader.readLine()) != null) {
+                String[] parts = line.trim().split("\\s+");
+
+                if (parts.length >= 4) {
+                    String deviceIp = parts[0];
+                    String mac = parts[3];
+
+                    if (mac.matches("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}")
+                            && !mac.equalsIgnoreCase("00:00:00:00:00:00")
+                            && seen.add(deviceIp)) {
+
+                        deviceList.add(
+                            "IP: " + deviceIp + "\nMAC: " + mac
+                        );
+                    }
+                }
+            }
+
+            reader.close();
+
+            if (deviceList.isEmpty()) {
+                devices.setText(
+                    "Şu anda görüntülenebilen cihaz bulunamadı.\n\n" +
+                    "Android, bazı ağ cihazlarını gizleyebilir."
+                );
+            } else {
+                StringBuilder result = new StringBuilder();
+
+                result.append("Görüntülenebilen cihaz sayısı: ")
+                      .append(deviceList.size())
+                      .append("\n\n");
+
+                for (int i = 0; i < deviceList.size(); i++) {
+                    result.append("Cihaz ")
+                          .append(i + 1)
+                          .append("\n")
+                          .append(deviceList.get(i))
+                          .append("\n\n");
+                }
+
+                result.append(
+                    "Not: Bu liste tüm bağlı cihazları göstermeyebilir."
+                );
+
+                devices.setText(result.toString());
+            }
+
+        } catch (Exception e) {
+            devices.setText(
+                "Cihaz listesi bu Android sürümünde okunamıyor olabilir."
+            );
         }
     }
 }
